@@ -49,16 +49,38 @@ export async function POST(req: NextRequest) {
       )
     }
     
-    // Parse JSON response
+    console.log("Raw OpenAI readability response:", response)
+    
+    // Parse JSON response with robust error handling
     let metrics
     try {
+      // Try to parse the response directly first
       metrics = JSON.parse(response)
     } catch (parseError) {
-      console.error("Failed to parse OpenAI response as JSON:", response)
-      return NextResponse.json(
-        { error: "Invalid response format from AI" },
-        { status: 500 }
-      )
+      console.error("Direct JSON parse failed, attempting to extract JSON from response")
+      
+      // Try to extract JSON from response if it's wrapped in other text
+      const jsonMatch = response.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        try {
+          metrics = JSON.parse(jsonMatch[0])
+          console.log("Successfully extracted JSON from wrapped response")
+        } catch (extractError) {
+          console.error("Failed to parse extracted JSON:", jsonMatch[0])
+          console.error("Extract error:", extractError instanceof Error ? extractError.message : String(extractError))
+          return NextResponse.json(
+            { error: "Invalid response format from AI" },
+            { status: 500 }
+          )
+        }
+      } else {
+        console.error("No JSON object found in response:", response)
+        console.error("Parse error:", parseError instanceof Error ? parseError.message : String(parseError))
+        return NextResponse.json(
+          { error: "Invalid response format from AI" },
+          { status: 500 }
+        )
+      }
     }
     
     console.log("Readability analysis completed:", metrics)

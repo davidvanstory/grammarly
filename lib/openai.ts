@@ -77,4 +77,4 @@ Complexity levels:
 - Moderate: 60-79  
 - Difficult: 0-59
 
-Only return valid JSON.` 
+IMPORTANT: Your response must be ONLY valid JSON in the exact format specified above. Do not include any explanatory text, markdown formatting, or additional commentary. Return only the JSON object.` 

@@ -6,7 +6,7 @@ This client component provides the document editor interface with document manag
 
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -32,7 +32,10 @@ import {
   Save, 
   Calendar,
   Clock,
-  FileEdit
+  FileEdit,
+  BookOpen,
+  Loader2,
+  TrendingUp
 } from "lucide-react"
 import TipTapEditor from "@/components/editor/tiptap-editor"
 import { 
@@ -50,6 +53,100 @@ interface DocumentEditorClientProps {
   userId: string
 }
 
+interface ReadabilityMetrics {
+  wordCount: number
+  sentenceCount: number
+  averageWordLength: number
+  averageSentenceLength: number
+  fleschReadingEase: number
+  complexity: "easy" | "moderate" | "difficult"
+}
+
+// Readability Score Component
+function ReadabilityScore({ 
+  metrics, 
+  isLoading 
+}: { 
+  metrics: ReadabilityMetrics | null
+  isLoading: boolean 
+}) {
+  console.log("[ReadabilityScore] Rendering with metrics:", metrics, "isLoading:", isLoading)
+
+  if (isLoading) {
+    return (
+      <Card className="border-2 border-dashed border-muted-foreground/20">
+        <CardContent className="p-3">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span>Analyzing readability...</span>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (!metrics) {
+    return (
+      <Card className="border-2 border-dashed border-muted-foreground/20">
+        <CardContent className="p-3">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <BookOpen className="h-4 w-4" />
+            <span>Start writing to see readability</span>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const getScoreColor = (score: number) => {
+    if (score >= 80) return "text-green-600 bg-green-50 border-green-200"
+    if (score >= 60) return "text-yellow-600 bg-yellow-50 border-yellow-200"
+    return "text-red-600 bg-red-50 border-red-200"
+  }
+
+  const getComplexityColor = (complexity: string) => {
+    switch (complexity) {
+      case "easy": return "bg-green-100 text-green-800 border-green-200"
+      case "moderate": return "bg-yellow-100 text-yellow-800 border-yellow-200"  
+      case "difficult": return "bg-red-100 text-red-800 border-red-200"
+      default: return "bg-gray-100 text-gray-800 border-gray-200"
+    }
+  }
+
+  return (
+    <Card className="border-2">
+      <CardContent className="p-3">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-primary" />
+            <span className="font-medium text-sm">Readability Score</span>
+          </div>
+          
+          <div className="flex items-center justify-between">
+            <div className={cn(
+              "px-2 py-1 rounded text-xs font-medium border",
+              getScoreColor(metrics.fleschReadingEase)
+            )}>
+              {Math.round(metrics.fleschReadingEase)}
+            </div>
+            <Badge 
+              variant="secondary" 
+              className={cn("text-xs capitalize", getComplexityColor(metrics.complexity))}
+            >
+              {metrics.complexity}
+            </Badge>
+          </div>
+          
+          <div className="text-xs text-muted-foreground space-y-1">
+            <div>Avg sentence: {Math.round(metrics.averageSentenceLength)} words</div>
+            <div>Avg word: {metrics.averageWordLength.toFixed(1)} chars</div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function DocumentEditorClient({ userId }: DocumentEditorClientProps) {
   const [documents, setDocuments] = useState<SelectDocument[]>([])
   const [currentDocument, setCurrentDocument] = useState<SelectDocument | null>(null)
@@ -57,12 +154,87 @@ export default function DocumentEditorClient({ userId }: DocumentEditorClientPro
   const [isCreating, setIsCreating] = useState(false)
   const [newDocumentTitle, setNewDocumentTitle] = useState("")
   const [showNewDocumentForm, setShowNewDocumentForm] = useState(false)
+  
+  // Readability state
+  const [readabilityMetrics, setReadabilityMetrics] = useState<ReadabilityMetrics | null>(null)
+  const [isAnalyzingReadability, setIsAnalyzingReadability] = useState(false)
+  
   const { toast } = useToast()
 
   // Load documents on mount
   useEffect(() => {
     loadDocuments()
   }, [userId])
+
+  // Analyze readability when document changes
+  useEffect(() => {
+    if (currentDocument && currentDocument.content) {
+      console.log("[DocumentEditor] Document changed, analyzing readability for:", currentDocument.id)
+      analyzeReadability(currentDocument.content)
+    } else {
+      console.log("[DocumentEditor] No document or empty content, clearing readability")
+      setReadabilityMetrics(null)
+    }
+  }, [currentDocument])
+
+  // Debounced readability analysis function
+  const analyzeReadability = useCallback(
+    debounce(async (content: string) => {
+      if (!content || content.length < 50) {
+        console.log("[DocumentEditor] Content too short for readability analysis:", content.length)
+        setReadabilityMetrics(null)
+        return
+      }
+
+      console.log("[DocumentEditor] Starting readability analysis for content length:", content.length)
+      setIsAnalyzingReadability(true)
+
+      try {
+        // Remove HTML tags for plain text analysis
+        const plainText = content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()
+        
+        if (plainText.length < 50) {
+          console.log("[DocumentEditor] Plain text too short after HTML removal:", plainText.length)
+          setReadabilityMetrics(null)
+          return
+        }
+
+        console.log("[DocumentEditor] Sending text to readability API, length:", plainText.length)
+
+        const response = await fetch("/api/readability", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: plainText })
+        })
+
+        if (response.ok) {
+          const { metrics } = await response.json()
+          console.log("[DocumentEditor] Readability analysis completed:", metrics)
+          setReadabilityMetrics(metrics)
+        } else {
+          console.error("[DocumentEditor] Readability analysis failed:", response.statusText)
+          setReadabilityMetrics(null)
+          toast({
+            title: "Readability Analysis Failed",
+            description: "Could not analyze document readability",
+            variant: "destructive"
+          })
+        }
+      } catch (error) {
+        console.error("[DocumentEditor] Error analyzing readability:", error)
+        setReadabilityMetrics(null)
+        toast({
+          title: "Readability Analysis Error",
+          description: "An error occurred while analyzing readability",
+          variant: "destructive"
+        })
+      } finally {
+        setIsAnalyzingReadability(false)
+        console.log("[DocumentEditor] Readability analysis process completed")
+      }
+    }, 2000),
+    []
+  )
 
   const loadDocuments = async () => {
     console.log("Loading documents for user:", userId)
@@ -101,11 +273,10 @@ export default function DocumentEditorClient({ userId }: DocumentEditorClientPro
       }
       
       if (result.isSuccess) {
-        setDocuments(result.data || [])
         console.log("[DocumentEditor] Documents loaded successfully:", result.data?.length || 0)
+        setDocuments(result.data || [])
       } else {
         console.error("[DocumentEditor] Failed to load documents:", result.message)
-        // Set empty array to prevent infinite retries
         setDocuments([])
         toast({
           title: "Error",
@@ -113,17 +284,12 @@ export default function DocumentEditorClient({ userId }: DocumentEditorClientPro
           variant: "destructive"
         })
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error("[DocumentEditor] Error loading documents:", error)
-      console.error("[DocumentEditor] Error type:", typeof error)
-      console.error("[DocumentEditor] Error message:", error?.message)
-      console.error("[DocumentEditor] Error stack:", error?.stack)
-      
-      // Set empty array to prevent infinite retries
       setDocuments([])
       toast({
         title: "Error",
-        description: error?.message || "Failed to load documents",
+        description: "Failed to load documents",
         variant: "destructive"
       })
     } finally {
@@ -215,6 +381,10 @@ export default function DocumentEditorClient({ userId }: DocumentEditorClientPro
         )
         console.log("Document saved successfully:", updatedDoc.id)
         
+        // Trigger readability analysis for updated content
+        console.log("[DocumentEditor] Document saved, triggering readability analysis")
+        analyzeReadability(content)
+        
         toast({
           title: "Saved",
           description: "Document saved successfully"
@@ -248,6 +418,7 @@ export default function DocumentEditorClient({ userId }: DocumentEditorClientPro
         
         if (currentDocument?.id === documentId) {
           setCurrentDocument(null)
+          setReadabilityMetrics(null) // Clear readability when document is deleted
         }
         
         console.log("Document deleted successfully:", documentId)
@@ -426,60 +597,70 @@ export default function DocumentEditorClient({ userId }: DocumentEditorClientPro
         <div className="lg:col-span-3">
           {currentDocument ? (
             <div className="space-y-4">
-              {/* Document Header */}
-              <Card>
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h2 className="text-xl font-semibold">{currentDocument.title}</h2>
-                      <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <FileEdit className="h-4 w-4" />
-                          {currentDocument.wordCount} words
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Clock className="h-4 w-4" />
-                          Last edited {formatTime(currentDocument.lastEditedAt)}
-                        </span>
+              {/* Document Header with Readability Score */}
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+                <Card className="lg:col-span-3">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h2 className="text-xl font-semibold">{currentDocument.title}</h2>
+                        <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <FileEdit className="h-4 w-4" />
+                            {currentDocument.wordCount} words
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Clock className="h-4 w-4" />
+                            Last edited {formatTime(currentDocument.lastEditedAt)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary">
+                          {currentDocument.characterCount} characters
+                        </Badge>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Delete
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete Document</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Are you sure you want to delete "{currentDocument.title}"? This action cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => deleteDocument(currentDocument.id)}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              >
+                                Delete Document
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="secondary">
-                        {currentDocument.characterCount} characters
-                      </Badge>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                          >
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Delete
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Delete Document</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Are you sure you want to delete "{currentDocument.title}"? This action cannot be undone.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() => deleteDocument(currentDocument.id)}
-                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                            >
-                              Delete Document
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+                
+                {/* Readability Score Box */}
+                <div className="lg:col-span-1">
+                  <ReadabilityScore 
+                    metrics={readabilityMetrics} 
+                    isLoading={isAnalyzingReadability}
+                  />
+                </div>
+              </div>
               
               {/* Editor */}
               <TipTapEditor
@@ -508,4 +689,16 @@ export default function DocumentEditorClient({ userId }: DocumentEditorClientPro
       </div>
     </div>
   )
+}
+
+// Utility function for debouncing
+function debounce<T extends (...args: any[]) => any>(
+  func: T,
+  wait: number
+): (...args: Parameters<T>) => void {
+  let timeout: NodeJS.Timeout
+  return (...args: Parameters<T>) => {
+    clearTimeout(timeout)
+    timeout = setTimeout(() => func(...args), wait)
+  }
 } 
