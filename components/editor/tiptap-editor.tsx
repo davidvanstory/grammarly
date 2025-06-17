@@ -21,7 +21,7 @@ import Table from "@tiptap/extension-table"
 import TableRow from "@tiptap/extension-table-row"
 import TableCell from "@tiptap/extension-table-cell"
 import TableHeader from "@tiptap/extension-table-header"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useState, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -63,6 +63,144 @@ interface TipTapEditorProps {
   readOnly?: boolean
 }
 
+// Helper function to map plain text positions to document positions
+function mapTextPositionsToDocumentPositions(editor: any, issues: GrammarIssue[]): GrammarIssue[] {
+  if (!editor || !issues || issues.length === 0) {
+    console.log("[mapTextPositionsToDocumentPositions] No editor or issues to map")
+    return []
+  }
+
+  const mappedIssues: GrammarIssue[] = []
+  const doc = editor.state.doc
+  
+  // Get the plain text exactly as sent to the API
+  const editorPlainText = editor.getText()
+  console.log("[mapTextPositionsToDocumentPositions] Editor plain text:", editorPlainText)
+  console.log("[mapTextPositionsToDocumentPositions] Plain text length:", editorPlainText.length)
+  
+  // Build a comprehensive character-by-character mapping
+  const charMap: Array<{ plainTextIndex: number; docPos: number; char: string }> = []
+  let plainTextIndex = 0
+  
+  // Walk through each node in the document
+  doc.descendants((node: any, pos: number) => {
+    if (node.isText && node.text) {
+      console.log("[mapTextPositionsToDocumentPositions] Processing text node:", {
+        text: node.text,
+        nodeStartPos: pos,
+        plainTextIndexStart: plainTextIndex
+      })
+      
+      // Map each character in this text node
+      for (let i = 0; i < node.text.length; i++) {
+        const char = node.text[i]
+        const docPos = pos + i
+        
+        // Verify this character matches the plain text
+        if (plainTextIndex < editorPlainText.length && editorPlainText[plainTextIndex] === char) {
+          charMap.push({
+            plainTextIndex,
+            docPos,
+            char
+          })
+          plainTextIndex++
+        } else {
+          console.warn("[mapTextPositionsToDocumentPositions] Character mismatch at plainTextIndex", plainTextIndex, 
+            "expected:", editorPlainText[plainTextIndex], "got:", char)
+        }
+      }
+    }
+    return true
+  })
+  
+  console.log("[mapTextPositionsToDocumentPositions] Built character map with", charMap.length, "entries")
+  console.log("[mapTextPositionsToDocumentPositions] Character map sample:", charMap.slice(0, 20))
+  
+  // Map each issue using the character map
+  for (const issue of issues) {
+    console.log("[mapTextPositionsToDocumentPositions] Mapping issue:", {
+      type: issue.type,
+      originalStart: issue.start,
+      originalEnd: issue.end,
+      explanation: issue.explanation
+    })
+    
+    // Extract the text that should be highlighted from plain text
+    const issueText = editorPlainText.substring(issue.start, issue.end)
+    console.log("[mapTextPositionsToDocumentPositions] Issue text from plain text:", `"${issueText}"`)
+    
+    // Find the corresponding document positions
+    const startChar = charMap.find(c => c.plainTextIndex === issue.start)
+    const endChar = charMap.find(c => c.plainTextIndex === issue.end - 1) // end is exclusive
+    
+    if (startChar && endChar) {
+      const mappedIssue: GrammarIssue = {
+        ...issue,
+        start: startChar.docPos,
+        end: endChar.docPos + 1 // make end exclusive
+      }
+      
+      // Verify the mapping by extracting text from document
+      const mappedText = doc.textBetween(mappedIssue.start, mappedIssue.end)
+      console.log("[mapTextPositionsToDocumentPositions] Successfully mapped issue:", {
+        type: mappedIssue.type,
+        originalPositions: `${issue.start}-${issue.end}`,
+        newPositions: `${mappedIssue.start}-${mappedIssue.end}`,
+        originalText: `"${issueText}"`,
+        mappedText: `"${mappedText}"`,
+        textMatch: issueText === mappedText
+      })
+      
+      mappedIssues.push(mappedIssue)
+    } else {
+      console.warn("[mapTextPositionsToDocumentPositions] Could not map issue positions:", {
+        issue,
+        startCharFound: !!startChar,
+        endCharFound: !!endChar,
+        charMapSize: charMap.length,
+        plainTextLength: editorPlainText.length
+      })
+      
+      // Fallback: try to find the text in the document
+      const issueText = editorPlainText.substring(issue.start, issue.end)
+      console.log("[mapTextPositionsToDocumentPositions] Attempting fallback search for:", `"${issueText}"`)
+      
+      // Search for the text in the document
+      let foundPos = -1
+      doc.descendants((node: any, pos: number) => {
+        if (node.isText && node.text && foundPos === -1) {
+          const index = node.text.indexOf(issueText)
+          if (index !== -1) {
+            foundPos = pos + index
+            return false // stop searching
+          }
+        }
+        return true
+      })
+      
+      if (foundPos !== -1) {
+        const fallbackIssue: GrammarIssue = {
+          ...issue,
+          start: foundPos,
+          end: foundPos + issueText.length
+        }
+        console.log("[mapTextPositionsToDocumentPositions] Fallback mapping successful:", {
+          originalPositions: `${issue.start}-${issue.end}`,
+          fallbackPositions: `${fallbackIssue.start}-${fallbackIssue.end}`,
+          text: `"${issueText}"`
+        })
+        mappedIssues.push(fallbackIssue)
+      } else {
+        console.warn("[mapTextPositionsToDocumentPositions] Fallback search failed, using original positions")
+        mappedIssues.push(issue)
+      }
+    }
+  }
+  
+  console.log("[mapTextPositionsToDocumentPositions] Final result:", mappedIssues.length, "mapped issues")
+  return mappedIssues
+}
+
 export default function TipTapEditor({
   content = "",
   onContentChange,
@@ -86,42 +224,8 @@ export default function TipTapEditor({
     [onContentChange]
   )
 
-  // Debounced grammar check
-  const debouncedGrammarCheck = useCallback(
-    debounce(async (text: string) => {
-      if (text.length < 10) {
-        console.log("[TipTapEditor] Text too short for grammar check:", text.length)
-        return // Don't check very short text
-      }
-      
-      setIsCheckingGrammar(true)
-      console.log("[TipTapEditor] Starting grammar check for text of length:", text.length)
-      
-      try {
-        const response = await fetch("/api/proofread", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text })
-        })
-        
-        if (response.ok) {
-          const { issues } = await response.json()
-          setGrammarIssues(issues || [])
-          console.log("[TipTapEditor] Grammar check completed, found", issues?.length || 0, "issues:", issues)
-        } else {
-          console.error("[TipTapEditor] Grammar check failed:", response.statusText)
-          setGrammarIssues([])
-        }
-      } catch (error) {
-        console.error("[TipTapEditor] Error checking grammar:", error)
-        setGrammarIssues([])
-      } finally {
-        setIsCheckingGrammar(false)
-        console.log("[TipTapEditor] Grammar check process completed")
-      }
-    }, 2000),
-    []
-  )
+  // Grammar check function - will be set after editor is initialized
+  const grammarCheckRef = useRef<((text: string) => void) | null>(null)
 
   // Editor setup with GrammarMark extension
   const editor = useEditor({
@@ -162,9 +266,65 @@ export default function TipTapEditor({
       const text = editor.getText()
       console.log("[TipTapEditor] Editor updated, content length:", html.length, "text length:", text.length)
       debouncedContentChange(html)
-      debouncedGrammarCheck(text)
+      // Use the grammar check function from ref
+      if (grammarCheckRef.current) {
+        grammarCheckRef.current(text)
+      }
     }
   })
+
+  // Debounced grammar check - defined after editor to avoid dependency issues
+  const debouncedGrammarCheck = useCallback(
+    debounce(async (text: string) => {
+      if (!editor) {
+        console.log("[TipTapEditor] Editor not ready for grammar check")
+        return
+      }
+      
+      if (text.length < 10) {
+        console.log("[TipTapEditor] Text too short for grammar check:", text.length)
+        return // Don't check very short text
+      }
+      
+      setIsCheckingGrammar(true)
+      console.log("[TipTapEditor] Starting grammar check for text of length:", text.length)
+      console.log("[TipTapEditor] Text being sent to API:", `"${text}"`)
+      
+      try {
+        const response = await fetch("/api/proofread", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text })
+        })
+        
+        if (response.ok) {
+          const { issues } = await response.json()
+          
+          // Map plain text positions to document positions
+          const mappedIssues = mapTextPositionsToDocumentPositions(editor, issues || [])
+          
+          setGrammarIssues(mappedIssues)
+          console.log("[TipTapEditor] Grammar check completed, found", issues?.length || 0, "raw issues")
+          console.log("[TipTapEditor] Mapped to", mappedIssues?.length || 0, "document position issues:", mappedIssues)
+        } else {
+          console.error("[TipTapEditor] Grammar check failed:", response.statusText)
+          setGrammarIssues([])
+        }
+      } catch (error) {
+        console.error("[TipTapEditor] Error checking grammar:", error)
+        setGrammarIssues([])
+      } finally {
+        setIsCheckingGrammar(false)
+        console.log("[TipTapEditor] Grammar check process completed")
+      }
+    }, 2000),
+    [editor]
+  )
+
+  // Set the grammar check function in the ref
+  useEffect(() => {
+    grammarCheckRef.current = debouncedGrammarCheck
+  }, [debouncedGrammarCheck])
 
   // Update GrammarMark extension options when grammarIssues or selectedIssueIndex changes
   useEffect(() => {
@@ -196,10 +356,12 @@ export default function TipTapEditor({
       editor.commands.setContent(content || "")
     }
     // Clear grammar issues and trigger grammar check for new content
-    if (content) {
+    if (content && grammarCheckRef.current) {
       setGrammarIssues([])
       console.log("[TipTapEditor] Triggering grammar check for new document content")
-      debouncedGrammarCheck(content.replace(/<[^>]+>/g, " ")) // Remove HTML tags for plain text
+      // Remove HTML tags for plain text
+      const plainText = content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()
+      grammarCheckRef.current(plainText)
     }
   }, [content, editor])
 

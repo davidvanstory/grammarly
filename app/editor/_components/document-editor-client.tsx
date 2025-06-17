@@ -69,32 +69,66 @@ export default function DocumentEditorClient({ userId }: DocumentEditorClientPro
     setIsLoading(true)
     
     try {
+      // Debug: Check if the action function is available
+      console.log("[DocumentEditor] getDocumentsAction function:", typeof getDocumentsAction)
+      if (typeof getDocumentsAction !== 'function') {
+        console.error("[DocumentEditor] getDocumentsAction is not a function!")
+        setDocuments([])
+        toast({
+          title: "Error",
+          description: "Failed to load documents - action function not available",
+          variant: "destructive"
+        })
+        return
+      }
+      
+      console.log("[DocumentEditor] Calling getDocumentsAction with userId:", userId)
       const result = await getDocumentsAction(userId)
+      
+      console.log("[DocumentEditor] getDocumentsAction result:", result)
+      console.log("[DocumentEditor] Result type:", typeof result)
+      
+      // Check if result exists and has the expected structure
+      if (!result) {
+        console.error("[DocumentEditor] getDocumentsAction returned undefined")
+        setDocuments([])
+        toast({
+          title: "Error",
+          description: "Failed to load documents - no response from server",
+          variant: "destructive"
+        })
+        return
+      }
       
       if (result.isSuccess) {
         setDocuments(result.data || [])
-        console.log("Documents loaded successfully:", result.data?.length || 0)
+        console.log("[DocumentEditor] Documents loaded successfully:", result.data?.length || 0)
       } else {
-        console.error("Failed to load documents:", result.message)
+        console.error("[DocumentEditor] Failed to load documents:", result.message)
         // Set empty array to prevent infinite retries
         setDocuments([])
         toast({
           title: "Error",
-          description: result.message,
+          description: result.message || "Failed to load documents",
           variant: "destructive"
         })
       }
-    } catch (error) {
-      console.error("Error loading documents:", error)
+    } catch (error: any) {
+      console.error("[DocumentEditor] Error loading documents:", error)
+      console.error("[DocumentEditor] Error type:", typeof error)
+      console.error("[DocumentEditor] Error message:", error?.message)
+      console.error("[DocumentEditor] Error stack:", error?.stack)
+      
       // Set empty array to prevent infinite retries
       setDocuments([])
       toast({
         title: "Error",
-        description: "Failed to load documents",
+        description: error?.message || "Failed to load documents",
         variant: "destructive"
       })
     } finally {
       setIsLoading(false)
+      console.log("[DocumentEditor] loadDocuments process completed")
     }
   }
 

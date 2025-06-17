@@ -67,7 +67,7 @@ export const GrammarMark = Mark.create<GrammarMarkOptions>({
     let style = ''
     if (idx !== undefined && idx !== null && this.options.issues[idx]) {
       const issue = this.options.issues[idx]
-      style = `text-decoration: underline wavy 2px ${colorMap[issue.type]};`
+      style = `border-bottom: 2px solid ${colorMap[issue.type]};`
       if (this.options.selectedIndex === Number(idx)) {
         style += `background: ${highlightMap[issue.type]};`
       }
@@ -105,7 +105,7 @@ export const GrammarMark = Mark.create<GrammarMarkOptions>({
                       {
                         class: 'grammar-mark',
                         'data-issue-index': String(idx),
-                        style: `text-decoration: underline wavy 2px ${colorMap[issue.type]};${selectedIndex === idx ? `background: ${highlightMap[issue.type]};` : ''}`
+                        style: `border-bottom: 2px solid ${colorMap[issue.type]};${selectedIndex === idx ? `background: ${highlightMap[issue.type]};` : ''}`
                       }
                     )
                   )
