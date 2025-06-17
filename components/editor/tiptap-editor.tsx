@@ -158,6 +158,21 @@ export default function TipTapEditor({
     }
   })
 
+  // Add this useEffect to update editor content when the content prop changes
+  useEffect(() => {
+    if (editor && content !== editor.getHTML()) {
+      console.log("[TipTapEditor] Setting editor content for new document", { content })
+      editor.commands.setContent(content || "")
+    }
+    // Clear grammar issues and trigger grammar check for new content
+    if (content) {
+      setGrammarIssues([])
+      setShowIssues(false)
+      console.log("[TipTapEditor] Triggering grammar check for new document content", { content })
+      debouncedGrammarCheck(content.replace(/<[^>]+>/g, " ")) // Remove HTML tags for plain text
+    }
+  }, [content, editor])
+
   // Save handler
   const handleSave = async () => {
     if (!editor || !onSave) return
