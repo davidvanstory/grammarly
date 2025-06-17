@@ -48,6 +48,7 @@ import {
   Loader2
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { GrammarMark, GrammarIssue } from './grammar-mark-extension'
 
 interface TipTapEditorProps {
   content?: string
@@ -57,14 +58,6 @@ interface TipTapEditorProps {
   className?: string
   placeholder?: string
   readOnly?: boolean
-}
-
-interface GrammarIssue {
-  type: "grammar" | "spelling" | "style" | "clarity"
-  start: number
-  end: number
-  suggestion: string
-  explanation: string
 }
 
 export default function TipTapEditor({
@@ -80,6 +73,7 @@ export default function TipTapEditor({
   const [grammarIssues, setGrammarIssues] = useState<GrammarIssue[]>([])
   const [isCheckingGrammar, setIsCheckingGrammar] = useState(false)
   const [showIssues, setShowIssues] = useState(false)
+  const [selectedIssueIndex, setSelectedIssueIndex] = useState<number | null>(null)
 
   // Debounced content change handler
   const debouncedContentChange = useCallback(
@@ -120,6 +114,7 @@ export default function TipTapEditor({
     []
   )
 
+  // Editor setup with GrammarMark extension
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -145,18 +140,38 @@ export default function TipTapEditor({
       }),
       TableRow,
       TableHeader,
-      TableCell
+      TableCell,
+      GrammarMark.configure({
+        issues: grammarIssues,
+        selectedIndex: selectedIssueIndex
+      })
     ],
     content,
     editable: !readOnly,
     onUpdate: ({ editor }) => {
       const html = editor.getHTML()
       const text = editor.getText()
-      
       debouncedContentChange(html)
       debouncedGrammarCheck(text)
     }
   })
+
+  // Update GrammarMark extension options when grammarIssues or selectedIssueIndex changes
+  useEffect(() => {
+    if (editor) {
+      // @ts-ignore
+      editor.extensionManager.extensions.forEach(ext => {
+        if (ext.name === 'grammarMark') {
+          ext.options.issues = grammarIssues
+          ext.options.selectedIndex = selectedIssueIndex
+        }
+      })
+      if (editor.view) {
+        editor.view.dispatch(editor.view.state.tr)
+      }
+      console.log('[TipTapEditor] Updated GrammarMark extension options', { grammarIssues, selectedIssueIndex })
+    }
+  }, [grammarIssues, selectedIssueIndex, editor])
 
   // Add this useEffect to update editor content when the content prop changes
   useEffect(() => {
@@ -436,9 +451,16 @@ export default function TipTapEditor({
                 <div
                   key={index}
                   className={cn(
-                    "p-2 rounded border text-sm",
-                    getIssueColor(issue.type)
+                    "p-2 rounded border text-sm cursor-pointer transition-colors",
+                    getIssueColor(issue.type),
+                    selectedIssueIndex === index && 'ring-2 ring-offset-2 ring-primary'
                   )}
+                  onClick={() => {
+                    setSelectedIssueIndex(index === selectedIssueIndex ? null : index)
+                    console.log('[TipTapEditor] Selected grammar issue', { index, issue })
+                  }}
+                  onMouseEnter={() => setSelectedIssueIndex(index)}
+                  onMouseLeave={() => setSelectedIssueIndex(null)}
                 >
                   <div className="font-medium capitalize">{issue.type}</div>
                   <div className="text-xs mt-1">{issue.explanation}</div>
