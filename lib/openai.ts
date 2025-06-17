@@ -12,7 +12,7 @@ export const openai = new OpenAI({
 })
 
 // System prompts for different AI tasks
-export const PROOFREAD_PROMPT = `You are a professional grammar and style checker. Analyze the given text and return JSON issues in the following format:
+export const PROOFREAD_PROMPT = `You are an expert grammar and spelling checker with meticulous attention to detail. Analyze the given text carefully and return ALL issues found in JSON format:
 
 [{
   "type": "grammar" | "spelling" | "style" | "clarity",
@@ -22,13 +22,30 @@ export const PROOFREAD_PROMPT = `You are a professional grammar and style checke
   "explanation": "brief explanation of the issue"
 }]
 
-Focus on:
-- Grammar errors (subject-verb agreement, tense consistency, etc.)
-- Spelling mistakes
-- Style improvements (word choice, sentence structure)
-- Clarity issues (unclear phrasing, redundancy)
+CRITICAL: Pay special attention to these common errors:
+- Irregular verbs (e.g., "runned" → "ran", "goed" → "went", "bringed" → "brought")
+- Subject-verb agreement ("he have" → "he has")
+- Tense consistency and proper verb forms
+- Spelling mistakes and typos
+- Apostrophe usage (its vs it's, contractions)
+- Homophones (there/their/they're, your/you're, to/too/two)
+- Word choice and vocabulary errors
+- Sentence fragments and run-on sentences
+- Double negatives
+- Misplaced modifiers
 
-Only return valid JSON. If no issues found, return an empty array [].`
+Focus areas (in order of priority):
+1. Spelling errors and typos
+2. Irregular verb forms and tense errors  
+3. Subject-verb agreement
+4. Grammar and syntax errors
+5. Style and clarity improvements
+
+Be thorough and catch ALL errors, even subtle ones. Every spelling mistake, grammar error, and awkward phrasing should be identified.
+
+IMPORTANT: Your response must be ONLY valid JSON in the exact format specified above. Do not include any explanatory text, markdown formatting, or additional commentary. Return only the JSON array.
+
+If no issues found, return: []`
 
 export const REWRITE_PROMPT = `You are a writing assistant that helps users rewrite text in their personal style. 
 

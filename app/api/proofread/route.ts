@@ -21,10 +21,10 @@ export async function POST(req: NextRequest) {
       )
     }
     
-    console.log("Proofreading text of length:", text.length)
+    console.log("Proofreading text of length:", text.length, "using model: gpt-4o-2024-11-20")
     
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4o-2024-11-20",
       messages: [
         {
           role: "system",
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
           content: text
         }
       ],
-      temperature: 0.1,
+      temperature: 0.2,
       max_tokens: 2000
     })
     
@@ -49,16 +49,38 @@ export async function POST(req: NextRequest) {
       )
     }
     
-    // Parse JSON response
+    console.log("Raw OpenAI response:", response)
+    
+    // Parse JSON response with robust error handling
     let issues
     try {
+      // Try to parse the response directly first
       issues = JSON.parse(response)
     } catch (parseError) {
-      console.error("Failed to parse OpenAI response as JSON:", response)
-      return NextResponse.json(
-        { error: "Invalid response format from AI" },
-        { status: 500 }
-      )
+      console.error("Direct JSON parse failed, attempting to extract JSON from response")
+      
+      // Try to extract JSON from response if it's wrapped in other text
+      const jsonMatch = response.match(/\[[\s\S]*\]/)
+      if (jsonMatch) {
+        try {
+          issues = JSON.parse(jsonMatch[0])
+          console.log("Successfully extracted JSON from wrapped response")
+        } catch (extractError) {
+          console.error("Failed to parse extracted JSON:", jsonMatch[0])
+          console.error("Extract error:", extractError instanceof Error ? extractError.message : String(extractError))
+          return NextResponse.json(
+            { error: "Invalid response format from AI" },
+            { status: 500 }
+          )
+        }
+      } else {
+        console.error("No JSON array found in response:", response)
+        console.error("Parse error:", parseError instanceof Error ? parseError.message : String(parseError))
+        return NextResponse.json(
+          { error: "Invalid response format from AI" },
+          { status: 500 }
+        )
+      }
     }
     
     console.log("Proofread completed, found", issues.length, "issues")

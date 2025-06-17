@@ -63,6 +63,30 @@ interface TipTapEditorProps {
   readOnly?: boolean
 }
 
+// Helper function to detect word boundaries for smart grammar checking
+function detectWordBoundary(oldText: string, newText: string): boolean {
+  if (!oldText || !newText) return false
+  
+  // If text got shorter (deletion), check immediately
+  if (newText.length < oldText.length) {
+    console.log("[detectWordBoundary] Text deletion detected, triggering word boundary")
+    return true
+  }
+  
+  // If text got longer, check the last character added
+  const lastChar = newText[newText.length - 1]
+  
+  // Word boundary characters: space, punctuation, newline
+  const wordBoundaryChars = [' ', '.', ',', '!', '?', ';', ':', '\n', '\t', '(', ')', '[', ']', '{', '}', '"', "'"]
+  const isWordBoundary = wordBoundaryChars.includes(lastChar)
+  
+  if (isWordBoundary) {
+    console.log("[detectWordBoundary] Word boundary character detected:", JSON.stringify(lastChar))
+  }
+  
+  return isWordBoundary
+}
+
 // Helper function to map plain text positions to document positions
 function mapTextPositionsToDocumentPositions(editor: any, issues: GrammarIssue[]): GrammarIssue[] {
   if (!editor || !issues || issues.length === 0) {
@@ -225,7 +249,10 @@ export default function TipTapEditor({
   )
 
   // Grammar check function - will be set after editor is initialized
-  const grammarCheckRef = useRef<((text: string) => void) | null>(null)
+  const grammarCheckRef = useRef<((text: string, trigger?: 'typing' | 'word-boundary' | 'immediate') => void) | null>(null)
+  
+  // Track the last text to detect word boundaries
+  const lastTextRef = useRef<string>("")
 
   // Editor setup with GrammarMark extension
   const editor = useEditor({
@@ -266,65 +293,104 @@ export default function TipTapEditor({
       const text = editor.getText()
       console.log("[TipTapEditor] Editor updated, content length:", html.length, "text length:", text.length)
       debouncedContentChange(html)
-      // Use the grammar check function from ref
+      
+      // Smart grammar check triggering
       if (grammarCheckRef.current) {
-        grammarCheckRef.current(text)
+        const lastText = lastTextRef.current
+        const isWordBoundary = detectWordBoundary(lastText, text)
+        lastTextRef.current = text
+        
+        if (isWordBoundary) {
+          console.log("[TipTapEditor] Word boundary detected, triggering immediate grammar check")
+          grammarCheckRef.current(text, 'word-boundary')
+        } else {
+          console.log("[TipTapEditor] Regular typing, using debounced grammar check")
+          grammarCheckRef.current(text, 'typing')
+        }
       }
     }
   })
 
-  // Debounced grammar check - defined after editor to avoid dependency issues
-  const debouncedGrammarCheck = useCallback(
-    debounce(async (text: string) => {
-      if (!editor) {
-        console.log("[TipTapEditor] Editor not ready for grammar check")
-        return
-      }
+  // Optimized grammar check with different debounce strategies
+  const performGrammarCheck = useCallback(async (text: string) => {
+    if (!editor) {
+      console.log("[TipTapEditor] Editor not ready for grammar check")
+      return
+    }
+    
+    if (text.length < 10) {
+      console.log("[TipTapEditor] Text too short for grammar check:", text.length)
+      return // Don't check very short text
+    }
+    
+    setIsCheckingGrammar(true)
+    console.log("[TipTapEditor] Starting grammar check for text of length:", text.length)
+    console.log("[TipTapEditor] Text being sent to API:", `"${text}"`)
+    
+    try {
+      const response = await fetch("/api/proofread", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text })
+      })
       
-      if (text.length < 10) {
-        console.log("[TipTapEditor] Text too short for grammar check:", text.length)
-        return // Don't check very short text
-      }
-      
-      setIsCheckingGrammar(true)
-      console.log("[TipTapEditor] Starting grammar check for text of length:", text.length)
-      console.log("[TipTapEditor] Text being sent to API:", `"${text}"`)
-      
-      try {
-        const response = await fetch("/api/proofread", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text })
-        })
+      if (response.ok) {
+        const { issues } = await response.json()
         
-        if (response.ok) {
-          const { issues } = await response.json()
-          
-          // Map plain text positions to document positions
-          const mappedIssues = mapTextPositionsToDocumentPositions(editor, issues || [])
-          
-          setGrammarIssues(mappedIssues)
-          console.log("[TipTapEditor] Grammar check completed, found", issues?.length || 0, "raw issues")
-          console.log("[TipTapEditor] Mapped to", mappedIssues?.length || 0, "document position issues:", mappedIssues)
-        } else {
-          console.error("[TipTapEditor] Grammar check failed:", response.statusText)
-          setGrammarIssues([])
-        }
-      } catch (error) {
-        console.error("[TipTapEditor] Error checking grammar:", error)
+        // Map plain text positions to document positions
+        const mappedIssues = mapTextPositionsToDocumentPositions(editor, issues || [])
+        
+        setGrammarIssues(mappedIssues)
+        console.log("[TipTapEditor] Grammar check completed, found", issues?.length || 0, "raw issues")
+        console.log("[TipTapEditor] Mapped to", mappedIssues?.length || 0, "document position issues:", mappedIssues)
+      } else {
+        console.error("[TipTapEditor] Grammar check failed:", response.statusText)
         setGrammarIssues([])
-      } finally {
-        setIsCheckingGrammar(false)
-        console.log("[TipTapEditor] Grammar check process completed")
       }
-    }, 2000),
-    [editor]
+    } catch (error) {
+      console.error("[TipTapEditor] Error checking grammar:", error)
+      setGrammarIssues([])
+    } finally {
+      setIsCheckingGrammar(false)
+      console.log("[TipTapEditor] Grammar check process completed")
+    }
+  }, [editor])
+
+  // Fast debounced grammar check for word boundaries (300ms)
+  const debouncedWordBoundaryCheck = useCallback(
+    debounce((text: string) => performGrammarCheck(text), 300),
+    [performGrammarCheck]
   )
+
+  // Slower debounced grammar check for regular typing (800ms)
+  const debouncedTypingCheck = useCallback(
+    debounce((text: string) => performGrammarCheck(text), 800),
+    [performGrammarCheck]
+  )
+
+  // Smart grammar check dispatcher
+  const smartGrammarCheck = useCallback((text: string, trigger: 'typing' | 'word-boundary' | 'immediate' = 'typing') => {
+    switch (trigger) {
+      case 'immediate':
+        console.log("[TipTapEditor] Immediate grammar check triggered")
+        performGrammarCheck(text)
+        break
+      case 'word-boundary':
+        console.log("[TipTapEditor] Word boundary grammar check triggered (300ms debounce)")
+        debouncedWordBoundaryCheck(text)
+        break
+      case 'typing':
+      default:
+        console.log("[TipTapEditor] Regular typing grammar check triggered (800ms debounce)")
+        debouncedTypingCheck(text)
+        break
+    }
+  }, [performGrammarCheck, debouncedWordBoundaryCheck, debouncedTypingCheck])
 
   // Set the grammar check function in the ref
   useEffect(() => {
-    grammarCheckRef.current = debouncedGrammarCheck
-  }, [debouncedGrammarCheck])
+    grammarCheckRef.current = smartGrammarCheck
+  }, [smartGrammarCheck])
 
   // Update GrammarMark extension options when grammarIssues or selectedIssueIndex changes
   useEffect(() => {
@@ -361,7 +427,7 @@ export default function TipTapEditor({
       console.log("[TipTapEditor] Triggering grammar check for new document content")
       // Remove HTML tags for plain text
       const plainText = content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()
-      grammarCheckRef.current(plainText)
+      grammarCheckRef.current(plainText, 'immediate')
     }
   }, [content, editor])
 

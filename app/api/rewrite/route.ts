@@ -29,10 +29,10 @@ export async function POST(req: NextRequest) {
       )
     }
     
-    console.log("Rewriting text of length:", text.length, "with writing sample of length:", writingSample.length)
+    console.log("Rewriting text of length:", text.length, "with writing sample of length:", writingSample.length, "using model: gpt-4o-2024-11-20")
     
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4o-2024-11-20",
       messages: [
         {
           role: "system",

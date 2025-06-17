@@ -21,10 +21,10 @@ export async function POST(req: NextRequest) {
       )
     }
     
-    console.log("Analyzing readability for text of length:", text.length)
+    console.log("Analyzing readability for text of length:", text.length, "using model: gpt-4o-2024-11-20")
     
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4o-2024-11-20",
       messages: [
         {
           role: "system",
