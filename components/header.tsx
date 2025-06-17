@@ -20,12 +20,16 @@ import { useEffect, useState } from "react"
 import { ThemeSwitcher } from "./utilities/theme-switcher"
 
 const navLinks = [
+  { href: "/marketing", label: "Home" },
   { href: "/about", label: "About" },
   { href: "/pricing", label: "Pricing" },
   { href: "/contact", label: "Contact" }
 ]
 
-const signedInLinks = [{ href: "/todo", label: "Todo" }]
+const signedInLinks = [
+  { href: "/editor", label: "Editor" },
+  { href: "/todo", label: "Todo" }
+]
 
 export default function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
@@ -127,7 +131,7 @@ export default function Header() {
                 className="block hover:underline"
                 onClick={toggleMenu}
               >
-                Home
+                Dashboard
               </Link>
             </li>
             {navLinks.map(link => (

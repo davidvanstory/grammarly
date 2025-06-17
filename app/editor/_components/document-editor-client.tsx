@@ -33,6 +33,7 @@ import {
 import { SelectDocument } from "@/db/schema"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
+import { SignOutButton } from "@clerk/nextjs"
 
 interface DocumentEditorClientProps {
   userId: string
@@ -253,168 +254,177 @@ export default function DocumentEditorClient({ userId }: DocumentEditorClientPro
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-      {/* Document List Sidebar */}
-      <div className="lg:col-span-1">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5" />
-              Documents
-            </CardTitle>
-            <Button
-              onClick={() => setShowNewDocumentForm(true)}
-              className="w-full"
-              size="sm"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              New Document
-            </Button>
-          </CardHeader>
-          
-          <CardContent className="space-y-4">
-            {/* New Document Form */}
-            {showNewDocumentForm && (
-              <Card className="p-4 border-dashed">
-                <div className="space-y-3">
-                  <div>
-                    <Label htmlFor="new-document-title">Document Title</Label>
-                    <Input
-                      id="new-document-title"
-                      value={newDocumentTitle}
-                      onChange={(e) => setNewDocumentTitle(e.target.value)}
-                      placeholder="Enter document title..."
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") createDocument()
-                        if (e.key === "Escape") setShowNewDocumentForm(false)
-                      }}
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={createDocument}
-                      disabled={isCreating}
-                      size="sm"
-                    >
-                      {isCreating ? "Creating..." : "Create"}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => setShowNewDocumentForm(false)}
-                      size="sm"
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              </Card>
-            )}
+    <div className="container mx-auto p-6">
+      <div className="flex justify-end mb-6">
+        <SignOutButton redirectUrl="/">
+          <Button variant="outline">
+            Log Out
+          </Button>
+        </SignOutButton>
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        {/* Document List Sidebar */}
+        <div className="lg:col-span-1">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="h-5 w-5" />
+                Documents
+              </CardTitle>
+              <Button
+                onClick={() => setShowNewDocumentForm(true)}
+                className="w-full"
+                size="sm"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                New Document
+              </Button>
+            </CardHeader>
             
-            {/* Document List */}
-            <div className="space-y-2">
-              {documents.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  No documents yet. Create your first document to get started.
-                </p>
-              ) : (
-                documents.map((doc) => (
-                  <div
-                    key={doc.id}
-                    className={cn(
-                      "p-3 rounded-lg border cursor-pointer transition-colors",
-                      currentDocument?.id === doc.id
-                        ? "border-primary bg-primary/5"
-                        : "border-border hover:border-primary/50"
-                    )}
-                    onClick={() => setCurrentDocument(doc)}
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-medium text-sm truncate">
-                          {doc.title}
-                        </h3>
-                        <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
-                          <span className="flex items-center gap-1">
-                            <FileEdit className="h-3 w-3" />
-                            {doc.wordCount} words
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Calendar className="h-3 w-3" />
-                            {formatDate(doc.lastEditedAt)}
-                          </span>
-                        </div>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          deleteDocument(doc.id)
+            <CardContent className="space-y-4">
+              {/* New Document Form */}
+              {showNewDocumentForm && (
+                <Card className="p-4 border-dashed">
+                  <div className="space-y-3">
+                    <div>
+                      <Label htmlFor="new-document-title">Document Title</Label>
+                      <Input
+                        id="new-document-title"
+                        value={newDocumentTitle}
+                        onChange={(e) => setNewDocumentTitle(e.target.value)}
+                        placeholder="Enter document title..."
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") createDocument()
+                          if (e.key === "Escape") setShowNewDocumentForm(false)
                         }}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={createDocument}
+                        disabled={isCreating}
+                        size="sm"
                       >
-                        <Trash2 className="h-3 w-3" />
+                        {isCreating ? "Creating..." : "Create"}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => setShowNewDocumentForm(false)}
+                        size="sm"
+                      >
+                        Cancel
                       </Button>
                     </div>
                   </div>
-                ))
+                </Card>
               )}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-      
-      {/* Editor Area */}
-      <div className="lg:col-span-3">
-        {currentDocument ? (
-          <div className="space-y-4">
-            {/* Document Header */}
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-xl font-semibold">{currentDocument.title}</h2>
-                    <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <FileEdit className="h-4 w-4" />
-                        {currentDocument.wordCount} words
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Clock className="h-4 w-4" />
-                        Last edited {formatTime(currentDocument.lastEditedAt)}
-                      </span>
+              
+              {/* Document List */}
+              <div className="space-y-2">
+                {documents.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No documents yet. Create your first document to get started.
+                  </p>
+                ) : (
+                  documents.map((doc) => (
+                    <div
+                      key={doc.id}
+                      className={cn(
+                        "p-3 rounded-lg border cursor-pointer transition-colors",
+                        currentDocument?.id === doc.id
+                          ? "border-primary bg-primary/5"
+                          : "border-border hover:border-primary/50"
+                      )}
+                      onClick={() => setCurrentDocument(doc)}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-medium text-sm truncate">
+                            {doc.title}
+                          </h3>
+                          <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1">
+                              <FileEdit className="h-3 w-3" />
+                              {doc.wordCount} words
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Calendar className="h-3 w-3" />
+                              {formatDate(doc.lastEditedAt)}
+                            </span>
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            deleteDocument(doc.id)
+                          }}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                  <Badge variant="secondary">
-                    {currentDocument.characterCount} characters
-                  </Badge>
-                </div>
-              </CardContent>
-            </Card>
-            
-            {/* Editor */}
-            <TipTapEditor
-              content={currentDocument.content}
-              onSave={saveDocument}
-              documentId={currentDocument.id}
-              placeholder="Start writing your document..."
-            />
-          </div>
-        ) : (
-          <Card className="flex items-center justify-center p-12">
-            <div className="text-center">
-              <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-lg font-medium mb-2">No Document Selected</h3>
-              <p className="text-muted-foreground mb-4">
-                Select a document from the sidebar or create a new one to start writing.
-              </p>
-              <Button onClick={() => setShowNewDocumentForm(true)}>
-                <Plus className="h-4 w-4 mr-2" />
-                Create New Document
-              </Button>
-            </div>
+                  ))
+                )}
+              </div>
+            </CardContent>
           </Card>
-        )}
+        </div>
+        
+        {/* Editor Area */}
+        <div className="lg:col-span-3">
+          {currentDocument ? (
+            <div className="space-y-4">
+              {/* Document Header */}
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="text-xl font-semibold">{currentDocument.title}</h2>
+                      <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <FileEdit className="h-4 w-4" />
+                          {currentDocument.wordCount} words
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Clock className="h-4 w-4" />
+                          Last edited {formatTime(currentDocument.lastEditedAt)}
+                        </span>
+                      </div>
+                    </div>
+                    <Badge variant="secondary">
+                      {currentDocument.characterCount} characters
+                    </Badge>
+                  </div>
+                </CardContent>
+              </Card>
+              
+              {/* Editor */}
+              <TipTapEditor
+                content={currentDocument.content}
+                onSave={saveDocument}
+                documentId={currentDocument.id}
+                placeholder="Start writing your document..."
+              />
+            </div>
+          ) : (
+            <Card className="flex items-center justify-center p-12">
+              <div className="text-center">
+                <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-medium mb-2">No Document Selected</h3>
+                <p className="text-muted-foreground mb-4">
+                  Select a document from the sidebar or create a new one to start writing.
+                </p>
+                <Button onClick={() => setShowNewDocumentForm(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create New Document
+                </Button>
+              </div>
+            </Card>
+          )}
+        </div>
       </div>
     </div>
   )
