@@ -76,6 +76,8 @@ export default function DocumentEditorClient({ userId }: DocumentEditorClientPro
         console.log("Documents loaded successfully:", result.data?.length || 0)
       } else {
         console.error("Failed to load documents:", result.message)
+        // Set empty array to prevent infinite retries
+        setDocuments([])
         toast({
           title: "Error",
           description: result.message,
@@ -84,6 +86,8 @@ export default function DocumentEditorClient({ userId }: DocumentEditorClientPro
       }
     } catch (error) {
       console.error("Error loading documents:", error)
+      // Set empty array to prevent infinite retries
+      setDocuments([])
       toast({
         title: "Error",
         description: "Failed to load documents",
