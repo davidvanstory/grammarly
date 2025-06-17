@@ -1,6 +1,6 @@
 /*
 <ai_context>
-This client component provides the document editor interface with document management and TipTap editor.
+This client component provides the document editor interface with document management and TipTap editor..
 </ai_context>
 */
 
