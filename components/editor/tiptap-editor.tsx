@@ -257,7 +257,10 @@ export default function TipTapEditor({
   // Editor setup with GrammarMark extension
   const editor = useEditor({
     extensions: [
-      StarterKit,
+      StarterKit.configure({
+        // Exclude codeBlock from StarterKit to avoid duplication
+        codeBlock: false
+      }),
       Placeholder.configure({
         placeholder
       }),
@@ -270,7 +273,7 @@ export default function TipTapEditor({
         openOnClick: false
       }),
       Image,
-      CodeBlock,
+      CodeBlock, // Use explicit CodeBlock extension
       TaskList,
       TaskItem.configure({
         nested: true
