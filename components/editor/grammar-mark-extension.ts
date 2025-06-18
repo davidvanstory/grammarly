@@ -88,33 +88,53 @@ export const GrammarMark = Mark.create<GrammarMarkOptions>({
             const { doc } = state
             const issues = this.options.issues
             const selectedIndex = this.options.selectedIndex
-            if (!issues || !Array.isArray(issues)) return null
-            let pos = 0
-            doc.descendants((node: any, posInner: number) => {
-              if (!node.isText) return true
-              issues.forEach((issue, idx) => {
-                const from = issue.start
-                const to = issue.end
-                if (from < to && pos + node.text.length >= from && pos <= to) {
-                  const start = Math.max(from, pos)
-                  const end = Math.min(to, pos + node.text.length)
-                  decorations.push(
-                    Decoration.inline(
-                      start,
-                      end,
-                      {
-                        class: 'grammar-mark',
-                        'data-issue-index': String(idx),
-                        style: `border-bottom: 2px solid ${colorMap[issue.type]};${selectedIndex === idx ? `background: ${highlightMap[issue.type]};` : ''}`
-                      }
-                    )
-                  )
-                  console.log('[GrammarMark] Decorating', { idx, from: start, to: end, type: issue.type, selected: selectedIndex === idx })
-                }
+            
+            if (!issues || !Array.isArray(issues)) {
+              console.log("🎨 [GrammarMark] No issues to decorate")
+              return null
+            }
+            
+            console.log("🎨 [GrammarMark] Decorating", issues.length, "issues")
+            
+            issues.forEach((issue, idx) => {
+              const issueId = `Issue ${idx + 1}`
+              console.log(`🎨 [GrammarMark] ${issueId}: Processing decoration`, {
+                type: issue.type,
+                positions: `${issue.start}-${issue.end}`,
+                suggestion: issue.suggestion,
+                selected: selectedIndex === idx
               })
-              pos += node.text.length
-              return false
+              
+              const from = issue.start
+              const to = issue.end
+              
+              // Validate positions
+              if (from >= to || from < 0 || to > doc.content.size) {
+                console.warn(`⚠️  [GrammarMark] ${issueId}: Invalid decoration positions - from: ${from}, to: ${to}, doc size: ${doc.content.size}`)
+                return
+              }
+              
+              // Extract text for verification
+              const decoratedText = doc.textBetween(from, to)
+              console.log(`🎨 [GrammarMark] ${issueId}: Decorating text:`, `"${decoratedText}"`)
+              
+              // Create decoration
+              decorations.push(
+                Decoration.inline(
+                  from,
+                  to,
+                  {
+                    class: 'grammar-mark',
+                    'data-issue-index': String(idx),
+                    style: `border-bottom: 2px solid ${colorMap[issue.type]};${selectedIndex === idx ? `background: ${highlightMap[issue.type]};` : ''}`
+                  }
+                )
+              )
+              
+              console.log(`✅ [GrammarMark] ${issueId}: Decoration created successfully at positions ${from}-${to}`)
             })
+            
+            console.log("🎨 [GrammarMark] Created", decorations.length, "decorations total")
             return DecorationSet.create(doc, decorations)
           }
         }

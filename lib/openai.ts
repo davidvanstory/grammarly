@@ -12,12 +12,21 @@ export const openai = new OpenAI({
 })
 
 // System prompts for different AI tasks
-export const PROOFREAD_PROMPT = `You are an expert grammar and spelling checker with meticulous attention to detail. Analyze the given text carefully and return ALL issues found in JSON format:
+export const PROOFREAD_PROMPT = `You are an expert grammar and spelling checker with meticulous attention to detail. Analyze the given text and return ALL issues found in JSON format.
 
+CRITICAL POSITION REQUIREMENTS:
+- The start and end positions MUST correspond to the exact character positions in the input text
+- Count characters starting from 0 (zero-based indexing)
+- The "start" position is inclusive (the first character of the error)
+- The "end" position is exclusive (one character after the last character of the error)
+- DOUBLE-CHECK your character counting - position accuracy is critical
+- Include whitespace, punctuation, and special characters in your position calculations
+
+Return format (JSON array):
 [{
   "type": "grammar" | "spelling" | "style" | "clarity",
-  "start": number,
-  "end": number,
+  "start": number (exact character position where error starts),
+  "end": number (exact character position where error ends, exclusive),
   "suggestion": "improved text",
   "explanation": "brief explanation of the issue"
 }]
@@ -42,6 +51,12 @@ Focus areas (in order of priority):
 5. Style and clarity improvements
 
 Be thorough and catch ALL errors, even subtle ones. Every spelling mistake, grammar error, and awkward phrasing should be identified.
+
+POSITION VERIFICATION PROCESS:
+1. Identify the error text in the input
+2. Count characters from the beginning to find the start position
+3. Count characters to find the end position (exclusive)
+4. Verify that the substring from start to end matches the error text exactly
 
 IMPORTANT: Your response must be ONLY valid JSON in the exact format specified above. Do not include any explanatory text, markdown formatting, or additional commentary. Return only the JSON array.
 

@@ -61,6 +61,8 @@ interface TipTapEditorProps {
   className?: string
   placeholder?: string
   readOnly?: boolean
+  grammarSidebarOpen?: boolean
+  onManualSave?: (content: string) => void
 }
 
 // Helper function to detect word boundaries for smart grammar checking
@@ -90,138 +92,153 @@ function detectWordBoundary(oldText: string, newText: string): boolean {
 // Helper function to map plain text positions to document positions
 function mapTextPositionsToDocumentPositions(editor: any, issues: GrammarIssue[]): GrammarIssue[] {
   if (!editor || !issues || issues.length === 0) {
-    console.log("[mapTextPositionsToDocumentPositions] No editor or issues to map")
+    console.log("🔍 [PositionMapper] No editor or issues to map")
     return []
   }
 
+  console.log("🔍 [PositionMapper] Starting position mapping for", issues.length, "issues")
   const mappedIssues: GrammarIssue[] = []
   const doc = editor.state.doc
   
-  // Get the plain text exactly as sent to the API
+  // Get the exact plain text as sent to the API
   const editorPlainText = editor.getText()
-  console.log("[mapTextPositionsToDocumentPositions] Editor plain text:", editorPlainText)
-  console.log("[mapTextPositionsToDocumentPositions] Plain text length:", editorPlainText.length)
+  console.log("📝 [PositionMapper] Editor plain text length:", editorPlainText.length)
+  console.log("📝 [PositionMapper] Editor plain text:", `"${editorPlainText}"`)
   
-  // Build a comprehensive character-by-character mapping
-  const charMap: Array<{ plainTextIndex: number; docPos: number; char: string }> = []
+  // Build a comprehensive mapping from plain text positions to document positions
+  const plainTextToDocPositionMap: number[] = []
   let plainTextIndex = 0
   
-  // Walk through each node in the document
-  doc.descendants((node: any, pos: number) => {
+  // Walk through the document and build position mapping
+  doc.descendants((node: any, docPos: number) => {
     if (node.isText && node.text) {
-      console.log("[mapTextPositionsToDocumentPositions] Processing text node:", {
-        text: node.text,
-        nodeStartPos: pos,
-        plainTextIndexStart: plainTextIndex
-      })
+      console.log("📄 [PositionMapper] Processing text node at doc position", docPos, "with text:", `"${node.text}"`)
       
       // Map each character in this text node
       for (let i = 0; i < node.text.length; i++) {
         const char = node.text[i]
-        const docPos = pos + i
+        const currentDocPos = docPos + i
         
-        // Verify this character matches the plain text
+        // Verify character matches plain text
         if (plainTextIndex < editorPlainText.length && editorPlainText[plainTextIndex] === char) {
-          charMap.push({
-            plainTextIndex,
-            docPos,
-            char
-          })
+          plainTextToDocPositionMap[plainTextIndex] = currentDocPos
           plainTextIndex++
         } else {
-          console.warn("[mapTextPositionsToDocumentPositions] Character mismatch at plainTextIndex", plainTextIndex, 
-            "expected:", editorPlainText[plainTextIndex], "got:", char)
+          console.warn("⚠️  [PositionMapper] Character mismatch at plainTextIndex", plainTextIndex, 
+            "- expected:", JSON.stringify(editorPlainText[plainTextIndex]), "got:", JSON.stringify(char))
         }
       }
     }
     return true
   })
   
-  console.log("[mapTextPositionsToDocumentPositions] Built character map with", charMap.length, "entries")
-  console.log("[mapTextPositionsToDocumentPositions] Character map sample:", charMap.slice(0, 20))
+  console.log("📊 [PositionMapper] Built position map with", plainTextToDocPositionMap.length, "entries")
+  console.log("📊 [PositionMapper] Plain text length:", editorPlainText.length)
+  console.log("📊 [PositionMapper] Position map sample (first 20):", plainTextToDocPositionMap.slice(0, 20))
   
-  // Map each issue using the character map
-  for (const issue of issues) {
-    console.log("[mapTextPositionsToDocumentPositions] Mapping issue:", {
+  // Process each issue
+  for (let i = 0; i < issues.length; i++) {
+    const issue = issues[i]
+    const issueId = `Issue ${i + 1}`
+    
+    console.log(`🔍 [PositionMapper] ${issueId}: Processing issue`, {
       type: issue.type,
-      originalStart: issue.start,
-      originalEnd: issue.end,
-      explanation: issue.explanation
+      plainTextStart: issue.start,
+      plainTextEnd: issue.end,
+      explanation: issue.explanation,
+      suggestion: issue.suggestion
     })
     
-    // Extract the text that should be highlighted from plain text
-    const issueText = editorPlainText.substring(issue.start, issue.end)
-    console.log("[mapTextPositionsToDocumentPositions] Issue text from plain text:", `"${issueText}"`)
+    // Validate issue positions against plain text
+    if (issue.start < 0 || issue.end > editorPlainText.length || issue.start >= issue.end) {
+      console.warn(`⚠️  [PositionMapper] ${issueId}: Invalid positions - start: ${issue.start}, end: ${issue.end}, text length: ${editorPlainText.length}`)
+      continue
+    }
     
-    // Find the corresponding document positions
-    const startChar = charMap.find(c => c.plainTextIndex === issue.start)
-    const endChar = charMap.find(c => c.plainTextIndex === issue.end - 1) // end is exclusive
+    // Extract the error text from plain text
+    const errorTextFromPlainText = editorPlainText.substring(issue.start, issue.end)
+    console.log(`📝 [PositionMapper] ${issueId}: Error text from plain text:`, `"${errorTextFromPlainText}"`)
     
-    if (startChar && endChar) {
-      const mappedIssue: GrammarIssue = {
-        ...issue,
-        start: startChar.docPos,
-        end: endChar.docPos + 1 // make end exclusive
-      }
+    // Map to document positions
+    const docStart = plainTextToDocPositionMap[issue.start]
+    const docEnd = issue.end > 0 ? (plainTextToDocPositionMap[issue.end - 1] + 1) : plainTextToDocPositionMap[issue.start] + 1
+    
+    if (docStart === undefined || docEnd === undefined) {
+      console.warn(`⚠️  [PositionMapper] ${issueId}: Cannot map positions - docStart: ${docStart}, docEnd: ${docEnd}`)
       
-      // Verify the mapping by extracting text from document
-      const mappedText = doc.textBetween(mappedIssue.start, mappedIssue.end)
-      console.log("[mapTextPositionsToDocumentPositions] Successfully mapped issue:", {
-        type: mappedIssue.type,
-        originalPositions: `${issue.start}-${issue.end}`,
-        newPositions: `${mappedIssue.start}-${mappedIssue.end}`,
-        originalText: `"${issueText}"`,
-        mappedText: `"${mappedText}"`,
-        textMatch: issueText === mappedText
-      })
+      // Fallback: try to find the text in the document using a more robust search
+      console.log(`🔍 [PositionMapper] ${issueId}: Attempting fallback search for:`, `"${errorTextFromPlainText}"`)
       
-      mappedIssues.push(mappedIssue)
-    } else {
-      console.warn("[mapTextPositionsToDocumentPositions] Could not map issue positions:", {
-        issue,
-        startCharFound: !!startChar,
-        endCharFound: !!endChar,
-        charMapSize: charMap.length,
-        plainTextLength: editorPlainText.length
-      })
+      let fallbackDocStart = -1
+      let fallbackDocEnd = -1
       
-      // Fallback: try to find the text in the document
-      const issueText = editorPlainText.substring(issue.start, issue.end)
-      console.log("[mapTextPositionsToDocumentPositions] Attempting fallback search for:", `"${issueText}"`)
-      
-      // Search for the text in the document
-      let foundPos = -1
-      doc.descendants((node: any, pos: number) => {
-        if (node.isText && node.text && foundPos === -1) {
-          const index = node.text.indexOf(issueText)
-          if (index !== -1) {
-            foundPos = pos + index
-            return false // stop searching
+      // Search through all text nodes for the error text
+      doc.descendants((node: any, docPos: number) => {
+        if (node.isText && node.text && fallbackDocStart === -1) {
+          const textContent = node.text
+          const searchIndex = textContent.indexOf(errorTextFromPlainText)
+          
+          if (searchIndex !== -1) {
+            fallbackDocStart = docPos + searchIndex
+            fallbackDocEnd = fallbackDocStart + errorTextFromPlainText.length
+            console.log(`✅ [PositionMapper] ${issueId}: Fallback search successful - doc positions: ${fallbackDocStart}-${fallbackDocEnd}`)
+            return false // Stop searching
           }
         }
         return true
       })
       
-      if (foundPos !== -1) {
-        const fallbackIssue: GrammarIssue = {
+      if (fallbackDocStart !== -1) {
+        const mappedIssue: GrammarIssue = {
           ...issue,
-          start: foundPos,
-          end: foundPos + issueText.length
+          start: fallbackDocStart,
+          end: fallbackDocEnd
         }
-        console.log("[mapTextPositionsToDocumentPositions] Fallback mapping successful:", {
-          originalPositions: `${issue.start}-${issue.end}`,
-          fallbackPositions: `${fallbackIssue.start}-${fallbackIssue.end}`,
-          text: `"${issueText}"`
-        })
-        mappedIssues.push(fallbackIssue)
+        
+        // Verify fallback mapping
+        const verificationText = doc.textBetween(fallbackDocStart, fallbackDocEnd)
+        console.log(`✅ [PositionMapper] ${issueId}: Fallback verification - expected: "${errorTextFromPlainText}", got: "${verificationText}", match: ${errorTextFromPlainText === verificationText}`)
+        
+        mappedIssues.push(mappedIssue)
       } else {
-        console.warn("[mapTextPositionsToDocumentPositions] Fallback search failed, using original positions")
-        mappedIssues.push(issue)
+        console.warn(`❌ [PositionMapper] ${issueId}: Fallback search failed, skipping issue`)
       }
+      continue
+    }
+    
+    // Create mapped issue
+    const mappedIssue: GrammarIssue = {
+      ...issue,
+      start: docStart,
+      end: docEnd
+    }
+    
+    // Verify mapping accuracy
+    const verificationText = doc.textBetween(docStart, docEnd)
+    const mappingValid = errorTextFromPlainText === verificationText
+    
+    console.log(`📍 [PositionMapper] ${issueId}: Mapping result`, {
+      plainTextPositions: `${issue.start}-${issue.end}`,
+      docPositions: `${docStart}-${docEnd}`,
+      expectedText: `"${errorTextFromPlainText}"`,
+      actualText: `"${verificationText}"`,
+      mappingValid
+    })
+    
+    if (mappingValid) {
+      mappedIssues.push(mappedIssue)
+      console.log(`✅ [PositionMapper] ${issueId}: Successfully mapped and verified`)
+    } else {
+      console.warn(`❌ [PositionMapper] ${issueId}: Mapping verification failed, skipping issue`)
     }
   }
   
-  console.log("[mapTextPositionsToDocumentPositions] Final result:", mappedIssues.length, "mapped issues")
+  console.log("📊 [PositionMapper] Final results:")
+  console.log("📊 [PositionMapper] Original issues:", issues.length)
+  console.log("📊 [PositionMapper] Successfully mapped:", mappedIssues.length)
+  console.log("📊 [PositionMapper] Failed to map:", issues.length - mappedIssues.length)
+  console.log("📊 [PositionMapper] Mapped issues:", mappedIssues)
+  
   return mappedIssues
 }
 
@@ -232,7 +249,9 @@ export default function TipTapEditor({
   documentId,
   className,
   placeholder = "Start writing...",
-  readOnly = false
+  readOnly = false,
+  grammarSidebarOpen = true,
+  onManualSave
 }: TipTapEditorProps) {
   const [isSaving, setIsSaving] = useState(false)
   const [grammarIssues, setGrammarIssues] = useState<GrammarIssue[]>([])
@@ -317,18 +336,20 @@ export default function TipTapEditor({
   // Optimized grammar check with different debounce strategies
   const performGrammarCheck = useCallback(async (text: string) => {
     if (!editor) {
-      console.log("[TipTapEditor] Editor not ready for grammar check")
+      console.log("⚠️  [GrammarCheck] Editor not ready for grammar check")
       return
     }
     
     if (text.length < 10) {
-      console.log("[TipTapEditor] Text too short for grammar check:", text.length)
+      console.log("⚠️  [GrammarCheck] Text too short for grammar check:", text.length)
       return // Don't check very short text
     }
     
     setIsCheckingGrammar(true)
-    console.log("[TipTapEditor] Starting grammar check for text of length:", text.length)
-    console.log("[TipTapEditor] Text being sent to API:", `"${text}"`)
+    console.log("🔍 [GrammarCheck] Starting grammar check")
+    console.log("📝 [GrammarCheck] Text length:", text.length)
+    console.log("📝 [GrammarCheck] Text being sent to API:", `"${text}"`)
+    console.log("📝 [GrammarCheck] Text character breakdown:", text.split('').map((char, i) => `${i}: "${char}" (${char.charCodeAt(0)})`).slice(0, 50))
     
     try {
       const response = await fetch("/api/proofread", {
@@ -339,23 +360,40 @@ export default function TipTapEditor({
       
       if (response.ok) {
         const { issues } = await response.json()
+        console.log("📨 [GrammarCheck] Received", issues?.length || 0, "issues from API")
+        
+        if (issues && issues.length > 0) {
+          console.log("📋 [GrammarCheck] Raw issues from API:", issues)
+          
+          // Validate that issues make sense with our text
+          issues.forEach((issue: any, index: number) => {
+            const issueText = text.substring(issue.start, issue.end)
+            console.log(`📍 [GrammarCheck] API Issue ${index + 1}:`, {
+              type: issue.type,
+              positions: `${issue.start}-${issue.end}`,
+              extractedText: `"${issueText}"`,
+              suggestion: `"${issue.suggestion}"`,
+              explanation: issue.explanation
+            })
+          })
+        }
         
         // Map plain text positions to document positions
         const mappedIssues = mapTextPositionsToDocumentPositions(editor, issues || [])
         
         setGrammarIssues(mappedIssues)
-        console.log("[TipTapEditor] Grammar check completed, found", issues?.length || 0, "raw issues")
-        console.log("[TipTapEditor] Mapped to", mappedIssues?.length || 0, "document position issues:", mappedIssues)
+        console.log("✅ [GrammarCheck] Grammar check completed successfully")
+        console.log("📊 [GrammarCheck] Final result: found", issues?.length || 0, "raw issues, mapped", mappedIssues?.length || 0, "issues")
       } else {
-        console.error("[TipTapEditor] Grammar check failed:", response.statusText)
+        console.error("❌ [GrammarCheck] Grammar check API failed:", response.status, response.statusText)
         setGrammarIssues([])
       }
     } catch (error) {
-      console.error("[TipTapEditor] Error checking grammar:", error)
+      console.error("💥 [GrammarCheck] Error during grammar check:", error)
       setGrammarIssues([])
     } finally {
       setIsCheckingGrammar(false)
-      console.log("[TipTapEditor] Grammar check process completed")
+      console.log("🏁 [GrammarCheck] Grammar check process completed")
     }
   }, [editor])
 
@@ -463,16 +501,17 @@ export default function TipTapEditor({
       if ((e.ctrlKey || e.metaKey) && e.key === "s") {
         e.preventDefault()
         console.log("[TipTapEditor] Save keyboard shortcut triggered")
-        handleSave()
+        if (onManualSave && editor) {
+          onManualSave(editor.getHTML())
+        }
       }
     }
-
     document.addEventListener("keydown", handleKeyDown)
     return () => {
       console.log("[TipTapEditor] Removing keyboard event listeners")
       document.removeEventListener("keydown", handleKeyDown)
     }
-  }, [editor])
+  }, [editor, onManualSave])
 
   if (!editor) {
     console.log("[TipTapEditor] Editor not initialized, showing loading state")
@@ -494,7 +533,7 @@ export default function TipTapEditor({
   return (
     <div className={cn("flex gap-4", className)}>
       {/* Main Editor Area */}
-      <div className="flex-1 flex flex-col space-y-4">
+      <div className={cn("flex-1 flex flex-col space-y-4 transition-all duration-300", grammarSidebarOpen ? "" : "w-full")}>
         {/* Toolbar */}
         {!readOnly && (
           <Card className="p-2">
@@ -706,27 +745,6 @@ export default function TipTapEditor({
               >
                 <AlignRight className="h-4 w-4" />
               </Button>
-              
-              <Separator orientation="vertical" className="h-6" />
-              
-              {/* Save button */}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  console.log("[TipTapEditor] Save button clicked")
-                  handleSave()
-                }}
-                disabled={isSaving}
-                className="ml-auto"
-              >
-                {isSaving ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Save className="h-4 w-4" />
-                )}
-                {isSaving ? "Saving..." : "Save"}
-              </Button>
             </div>
           </Card>
         )}
@@ -741,88 +759,118 @@ export default function TipTapEditor({
       </div>
 
       {/* Grammar Issues Sidebar */}
-      <div className="w-80 flex flex-col">
-        <Card className="flex-1">
-          <div className="p-3 border-b">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <BookOpen className="h-4 w-4" />
-                <span className="font-medium">Grammar Assistant</span>
+      {grammarSidebarOpen && (
+        <div className="w-80 flex flex-col transition-all duration-300 h-full max-h-[calc(100vh-10rem)]">
+          <Card className="flex-1 h-full">
+            <div className="p-3 border-b">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <BookOpen className="h-4 w-4" />
+                  <span className="font-medium">Grammar Assistant</span>
+                </div>
+                {isCheckingGrammar && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    <span>Checking...</span>
+                  </div>
+                )}
               </div>
-              {isCheckingGrammar && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  <span>Checking...</span>
+              
+              {grammarIssues.length > 0 && (
+                <div className="mt-2">
+                  <Badge variant="destructive" className="text-xs">
+                    {grammarIssues.length} issue{grammarIssues.length !== 1 ? "s" : ""} found
+                  </Badge>
                 </div>
               )}
             </div>
             
-            {grammarIssues.length > 0 && (
-              <div className="mt-2">
-                <Badge variant="destructive" className="text-xs">
-                  {grammarIssues.length} issue{grammarIssues.length !== 1 ? "s" : ""} found
-                </Badge>
-              </div>
-            )}
-          </div>
-          
-          <ScrollArea className="flex-1 p-3">
-            {grammarIssues.length === 0 ? (
-              <div className="text-center text-muted-foreground py-8">
-                <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                <p className="text-sm">No grammar issues found</p>
-                <p className="text-xs mt-1">Keep writing to see suggestions</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {grammarIssues.map((issue, index) => (
-                  <div
-                    key={index}
-                    className={cn(
-                      "p-3 rounded-lg border text-sm cursor-pointer transition-all duration-200 hover:shadow-sm",
-                      getIssueColor(issue.type),
-                      selectedIssueIndex === index && 'ring-2 ring-offset-2 ring-primary shadow-md'
-                    )}
-                    onClick={() => {
-                      const newIndex = index === selectedIssueIndex ? null : index
-                      setSelectedIssueIndex(newIndex)
-                      console.log('[TipTapEditor] Selected grammar issue', { 
-                        index: newIndex, 
-                        issue: newIndex !== null ? issue : null 
-                      })
-                    }}
-                    onMouseEnter={() => {
-                      setSelectedIssueIndex(index)
-                      console.log('[TipTapEditor] Hovering over grammar issue', { index, issue })
-                    }}
-                    onMouseLeave={() => {
-                      setSelectedIssueIndex(null)
-                      console.log('[TipTapEditor] Stopped hovering over grammar issue')
-                    }}
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <Badge variant="secondary" className="text-xs capitalize">
-                        {issue.type}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">
-                        {issue.start}-{issue.end}
-                      </span>
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <p className="text-xs leading-relaxed">{issue.explanation}</p>
-                      <div className="text-xs">
-                        <span className="font-medium text-green-700">Suggestion:</span>
-                        <p className="mt-1 text-green-600">{issue.suggestion}</p>
+            <ScrollArea className="flex-1 p-2 overflow-y-auto h-full max-h-[calc(100vh-14rem)]">
+              {grammarIssues.length === 0 ? (
+                <div className="text-center text-muted-foreground py-8">
+                  <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">No grammar issues found</p>
+                  <p className="text-xs mt-1">Keep writing to see suggestions</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {grammarIssues.map((issue, index) => (
+                    <div
+                      key={index}
+                      className={cn(
+                        "p-2 rounded border text-xs cursor-pointer flex flex-col gap-1 transition-all duration-200 hover:shadow-sm bg-white",
+                        getIssueColor(issue.type),
+                        selectedIssueIndex === index && 'ring-2 ring-offset-2 ring-primary shadow-md'
+                      )}
+                      onClick={() => {
+                        const newIndex = index === selectedIssueIndex ? null : index
+                        setSelectedIssueIndex(newIndex)
+                        console.log('[TipTapEditor] Selected grammar issue', { 
+                          index: newIndex, 
+                          issue: newIndex !== null ? issue : null 
+                        })
+                      }}
+                      onMouseEnter={() => {
+                        setSelectedIssueIndex(index)
+                        console.log('[TipTapEditor] Hovering over grammar issue', { index, issue })
+                      }}
+                      onMouseLeave={() => {
+                        setSelectedIssueIndex(null)
+                        console.log('[TipTapEditor] Stopped hovering over grammar issue')
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <Badge variant="secondary" className="text-2xs capitalize px-1 py-0.5">
+                          {issue.type}
+                        </Badge>
+                        <span className="text-2xs text-muted-foreground">
+                          {issue.start}-{issue.end}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="truncate flex-1">{issue.explanation}</span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-green-700 font-medium">{issue.suggestion}</span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="px-2 py-0.5 text-xs"
+                          onClick={e => {
+                            e.stopPropagation()
+                            // Accept: Replace text in editor
+                            if (!editor) return
+                            editor.commands.focus()
+                            editor.commands.insertContentAt({ from: issue.start, to: issue.end }, issue.suggestion)
+                            setGrammarIssues(prev => prev.filter((_, i) => i !== index))
+                            setSelectedIssueIndex(null)
+                            console.log('[TipTapEditor] Accepted suggestion', { issue, index })
+                          }}
+                        >
+                          Accept
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="px-2 py-0.5 text-xs text-muted-foreground"
+                          onClick={e => {
+                            e.stopPropagation()
+                            setGrammarIssues(prev => prev.filter((_, i) => i !== index))
+                            setSelectedIssueIndex(null)
+                            console.log('[TipTapEditor] Dismissed suggestion', { issue, index })
+                          }}
+                        >
+                          Dismiss
+                        </Button>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </ScrollArea>
-        </Card>
-      </div>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }

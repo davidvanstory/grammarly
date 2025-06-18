@@ -35,7 +35,9 @@ import {
   FileEdit,
   BookOpen,
   Loader2,
-  TrendingUp
+  TrendingUp,
+  ChevronRight,
+  ChevronLeft
 } from "lucide-react"
 import TipTapEditor from "@/components/editor/tiptap-editor"
 import { 
@@ -161,6 +163,10 @@ export default function DocumentEditorClient({ userId }: DocumentEditorClientPro
   
   const { toast } = useToast()
 
+  const [isGrammarSidebarOpen, setIsGrammarSidebarOpen] = useState(true)
+  const [lastSavedContent, setLastSavedContent] = useState<string>("")
+  const [isAutosaving, setIsAutosaving] = useState(false)
+
   // Load documents on mount
   useEffect(() => {
     loadDocuments()
@@ -176,6 +182,33 @@ export default function DocumentEditorClient({ userId }: DocumentEditorClientPro
       setReadabilityMetrics(null)
     }
   }, [currentDocument])
+
+  // Autosave every minute if there are unsaved changes
+  useEffect(() => {
+    if (!currentDocument) return
+    const interval = setInterval(() => {
+      if (currentDocument.content !== lastSavedContent) {
+        setIsAutosaving(true)
+        saveDocument(currentDocument.content).then(() => {
+          setLastSavedContent(currentDocument.content)
+          setIsAutosaving(false)
+          console.log("[Autosave] Document autosaved at", new Date().toLocaleTimeString())
+        })
+      }
+    }, 60000) // 1 minute
+    return () => clearInterval(interval)
+  }, [currentDocument, lastSavedContent])
+
+  // Update lastSavedContent when document is loaded or saved
+  useEffect(() => {
+    if (currentDocument) setLastSavedContent(currentDocument.content)
+  }, [currentDocument])
+
+  // Manual save handler for keyboard shortcut
+  const handleManualSave = async (content: string) => {
+    await saveDocument(content)
+    setLastSavedContent(content)
+  }
 
   // Debounced readability analysis function
   const analyzeReadability = useCallback(
@@ -475,7 +508,16 @@ export default function DocumentEditorClient({ userId }: DocumentEditorClientPro
 
   return (
     <div className="container mx-auto p-6">
-      <div className="flex justify-end mb-6">
+      <div className="flex justify-end items-center mb-6 gap-2">
+        <Button
+          variant="outline"
+          onClick={() => {
+            if (currentDocument) handleManualSave(currentDocument.content)
+          }}
+          disabled={!currentDocument || currentDocument.content === lastSavedContent || isAutosaving}
+        >
+          {isAutosaving ? "Autosaving..." : "Save"}
+        </Button>
         <SignOutButton redirectUrl="/">
           <Button variant="outline">
             Log Out
@@ -663,12 +705,26 @@ export default function DocumentEditorClient({ userId }: DocumentEditorClientPro
               </div>
               
               {/* Editor */}
-              <TipTapEditor
-                content={currentDocument.content}
-                onSave={saveDocument}
-                documentId={currentDocument.id}
-                placeholder="Start writing your document..."
-              />
+              <div className="relative">
+                {/* Sidebar Toggle Button */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute top-2 right-2 z-20"
+                  onClick={() => setIsGrammarSidebarOpen((open) => !open)}
+                  aria-label={isGrammarSidebarOpen ? "Hide Grammar Assistant" : "Show Grammar Assistant"}
+                >
+                  {isGrammarSidebarOpen ? <ChevronRight className="size-5" /> : <ChevronLeft className="size-5" />}
+                </Button>
+                <TipTapEditor
+                  content={currentDocument.content}
+                  onSave={saveDocument}
+                  documentId={currentDocument.id}
+                  placeholder="Start writing your document..."
+                  grammarSidebarOpen={isGrammarSidebarOpen}
+                  onManualSave={handleManualSave}
+                />
+              </div>
             </div>
           ) : (
             <Card className="flex items-center justify-center p-12">
